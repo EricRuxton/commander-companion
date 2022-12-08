@@ -39,6 +39,8 @@ const RegistrationPage = () => {
 
   function signIn() {
     Cookies.set("playerId", id);
+    navigate(`/table/${Cookies.get("playerId")}`);
+    window.location.reload();
   }
 
   useEffect(() => {

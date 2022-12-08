@@ -24,7 +24,8 @@ const Standings = () => {
         {standings.map((player) => (
           <ul>
             <li>
-              {standings.indexOf(player) + 1}. {player.name} ({player.points})
+              {standings.indexOf(player) + 1}. {player.name} Points:{" "}
+              {player.points} - AP/P: {player.APP}
             </li>
           </ul>
         ))}

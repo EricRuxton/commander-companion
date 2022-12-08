@@ -1,8 +1,7 @@
-import { React, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Axios from "axios";
 import config from "./config.json";
 import Popup from "reactjs-popup";
-import { useTimer } from "react-timer-hook";
 import { navigate } from "@reach/router";
 
 const contentStyle = {
@@ -15,48 +14,35 @@ const contentStyle = {
 const overlayStyle = { background: "rgba(0,0,0,0.5)" };
 
 const Table = (props) => {
-  // let [submitting, setSubmitting] = useState(false);
-  // const setSubmittingFalse = () => setSubmitting(false);
-  // const setSubmittingTrue = () => setSubmitting(true);
+  //submit table pop up hooks
   let [openSubmit, setOpenSubmit] = useState(false);
   const closeSubmitWindow = () => setOpenSubmit(false);
   const openSubmitWindow = () => {
     setOpenSubmit(true);
-    // setSubmittingTrue();
   };
-  let [openVote, setOpenVote] = useState(false);
-  const closeVoteWindow = () => setOpenVote(false);
-  const openVoteWindow = () => setOpenVote(true);
-  let [expiryTimestamp, setExpiryTime] = useState(
-    new Date().setSeconds(new Date().getSeconds() + 30)
-  );
+
+  //table data hooks
   let [table, setTable] = useState({
     tableNumber: 0,
     players: [
       { name: "", matchPoints: 0, id: "", points: 0, voteSubmitted: false },
     ],
+    votes: [
+      {
+        voter: {
+          id: "",
+          name: "",
+        },
+        vote: {
+          id: "",
+          name: "",
+        },
+      },
+    ],
     roundNumber: 0,
     matchStatus: "",
     numberOfRounds: 0,
     tournamentComplete: false,
-  });
-  const { seconds, start, pause, restart } = useTimer({
-    expiryTimestamp,
-    onExpire: async () => {
-      if (
-        !table.players.filter((p) => p.id === props.userId)[0].voteSubmitted
-      ) {
-        await Axios.post(`http://${config.ip}:8080/events/submitVote`, {
-          vote: null,
-          tableNumber: table.tableNumber,
-          voter: table.players.filter((p) => p.id === props.userId)[0],
-        }).then((res) => {
-          closeVoteWindow();
-          window.location.reload();
-        });
-      }
-    },
-    autoStart: false,
   });
 
   async function addPoint() {
@@ -70,8 +56,18 @@ const Table = (props) => {
     });
   }
 
+  async function removePoint() {
+    table.players.filter((p) => p.id === props.userId)[0].matchPoints--;
+    console.log(table.players.filter((p) => p.id === props.userId)[0]);
+    await Axios.post(`http://${config.ip}:8080/events/saveTable`, {
+      table: table,
+      userId: props.userId,
+    }).then((res) => {
+      setTable(res.data);
+    });
+  }
+
   async function triggerGroupVote() {
-    // setSubmittingFalse();
     await Axios.post(`http://${config.ip}:8080/events/markTableComplete`, {
       table: table,
     })
@@ -84,32 +80,45 @@ const Table = (props) => {
       });
   }
 
-  async function removePoint() {
-    table.players.filter((p) => p.id === props.userId)[0].matchPoints--;
-    console.log(table.players.filter((p) => p.id === props.userId)[0]);
-    await Axios.post(`http://${config.ip}:8080/events/saveTable`, {
-      table: table,
-      userId: props.userId,
-    }).then((res) => {
-      setTable(res.data);
-    });
-  }
-
   useEffect(() => {
     const interval = setInterval(async () => {
       Axios.get(`http://${config.ip}:8080/events/table/${props.userId}`)
         .then((res) => {
           if (res.data) {
+            console.log(res.data);
             setTable(res.data);
             if (table.tournamentComplete) {
               navigate(`/table/standings`).then(() => window.location.reload());
             }
-            if (table.matchStatus === "Voting") {
-              setOpenVote(true);
-              setExpiryTime(
-                new Date().setSeconds(new Date().getSeconds() + 30)
-              );
-              start();
+            if (table.votes) {
+              if (
+                table.votes.filter((ballot) => ballot.vote.id === props.userId)
+                  .length > 0
+              ) {
+                console.log(
+                  table.votes.filter(
+                    (ballot) => ballot.vote.id === props.userId
+                  ).length
+                );
+                document.getElementById("voteCount").style.visibility =
+                  "visible";
+              } else {
+                document.getElementById("voteCount").style.visibility =
+                  "hidden";
+              }
+              if (
+                table.votes.filter((ballot) => ballot.voter.id === props.userId)
+                  .length > 0
+              ) {
+                document.getElementById("voteRecord").style.visibility =
+                  "visible";
+              } else {
+                document.getElementById("voteRecord").style.visibility =
+                  "hidden";
+              }
+            } else {
+              document.getElementById("voteCount").style.visibility = "hidden";
+              document.getElementById("voteRecord").style.visibility = "hidden";
             }
           }
         })
@@ -118,21 +127,79 @@ const Table = (props) => {
         });
     }, 1000);
     return () => clearInterval(interval);
-  }, [table, props, start]);
+  }, [table, props]);
 
-  if (table.matchStatus !== "") {
-    if (table.players.filter((p) => p.id === props.userId)[0].voteSubmitted)
-      return (
-        <div>
-          {table.players.filter((p) => p.id === props.userId)[0].name}
-          <br />
-          Points:{" "}
-          {table.players.filter((p) => p.id === props.userId)[0].points +
-            table.players.filter((p) => p.id === props.userId)[0].matchPoints}
-          <br />
-          Awaiting next round pairings
-        </div>
-      );
+  if (table.matchStatus === "Completed") {
+    return (
+      <div>
+        <h1>Match Submitted</h1>
+        <h2>
+          {table.players.filter((p) => p.id === props.userId)[0].name} - Points:{" "}
+          {table.players.filter((p) => p.id === props.userId)[0].matchPoints}
+        </h2>
+        <ul className="player-list">
+          {table.players
+            .filter((p) => p.id !== props.userId)
+            .map((player) => (
+              <li key={player.id}>
+                {player.name} - Points: {player.matchPoints} -{" "}
+                <button
+                  disabled={
+                    table.players.filter((p) => p.id === props.userId)[0]
+                      .voteSubmitted
+                  }
+                  onClick={async () => {
+                    await Axios.post(
+                      `http://${config.ip}:8080/events/submitVote`,
+                      {
+                        vote: player,
+                        tableNumber: table.tableNumber,
+                        voter: table.players.filter(
+                          (p) => p.id === props.userId
+                        )[0],
+                      }
+                    ).then((res) => {
+                      console.log(res);
+                    });
+                  }}
+                >
+                  Give Vote
+                </button>
+              </li>
+            ))}
+        </ul>
+        {table.votes ? (
+          <div>
+            <div id="voteRecord">
+              Thanks for giving{" "}
+              {table.votes.filter((ballot) => ballot.voter.id === props.userId)
+                .length > 0
+                ? table.votes.filter(
+                    (ballot) => ballot.voter.id === props.userId
+                  )[0].vote.name
+                : null}{" "}
+              a sportsmanship vote!
+            </div>
+            <div id="voteCount">
+              You've received{" "}
+              {table.votes.filter((ballot) => ballot.vote.id === props.userId)
+                .length > 0
+                ? table.votes.filter(
+                    (ballot) => ballot.vote.id === props.userId
+                  ).length
+                : null}{" "}
+              sportsmanship vote(s)!
+            </div>
+          </div>
+        ) : (
+          <div>
+            You have until the next round begins to award 1 sportsmanship vote
+            to another player
+          </div>
+        )}
+      </div>
+    );
+  } else if (table.matchStatus !== "") {
     return (
       <div>
         <h1>
@@ -219,49 +286,6 @@ const Table = (props) => {
             </li>
           ))}
           <button onClick={triggerGroupVote}>Submit</button>
-        </Popup>
-        <Popup
-          className="popup"
-          open={openVote}
-          modal
-          contentStyle={contentStyle}
-          overlayStyle={overlayStyle}
-        >
-          <h3>Your table has been submitted</h3>
-          <div>
-            Select one player to receive the sportsmanship bonus point({seconds}
-            )
-          </div>
-          <br />
-          {table.players
-            .filter((p) => p.id !== props.userId)
-            .map((player) => (
-              <li key={player.id}>
-                <button
-                  onClick={async () => {
-                    await Axios.post(
-                      `http://${config.ip}:8080/events/submitVote`,
-                      {
-                        vote: player,
-                        tableNumber: table.tableNumber,
-                        voter: table.players.filter(
-                          (p) => p.id === props.userId
-                        )[0],
-                      }
-                    ).then((res) => {
-                      console.log(res);
-                      pause();
-                      setOpenVote(false);
-                      window.location.reload();
-                    });
-                  }}
-                >
-                  {player.name}
-                </button>
-                <br />
-                <br />
-              </li>
-            ))}
         </Popup>
       </div>
     );

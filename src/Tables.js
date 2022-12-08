@@ -16,23 +16,34 @@ const overlayStyle = { background: "rgba(0,0,0,0.5)" };
 const Tables = () => {
   let [openSubmit, setOpenSubmit] = useState(false);
   const closeSubmitWindow = () => setOpenSubmit(false);
-  const openSubmitWindow = () => {
-    setOpenSubmit(true);
-  };
+  const openSubmitWindow = () => setOpenSubmit(true);
+
   let [openDrop, setOpenDrop] = useState(false);
   const closeDropWindow = () => setOpenDrop(false);
-  const openDropWindow = () => {
-    setOpenDrop(true);
-  };
+
   let [event, setEvent] = useState({
     ActiveTables: [
       {
         players: [
-          { name: "", dropped: false, id: "", matchPoints: 0, points: 0 },
+          {
+            name: "",
+            dropped: false,
+            id: "",
+            matchPoints: 0,
+            points: 0,
+            votes: 0,
+            APP: 0,
+          },
         ],
         tableNumber: 0,
         matchStatus: "",
         roundNumber: 0,
+        votes: [
+          {
+            voter: { id: "", name: "" },
+            vote: { id: "", name: "" },
+          },
+        ],
       },
     ],
     currentRound: 0,
@@ -53,6 +64,23 @@ const Tables = () => {
     const interval = setInterval(async () => {
       Axios.get(`http://${config.ip}:8080/events/tables`).then((res) => {
         setEvent(res.data);
+        event.ActiveTables.forEach((table) => {
+          if (table.votes) {
+            console.log(table.votes);
+            table.players.forEach((player) => {
+              player.votes =
+                table.votes.filter((ballot) => ballot.vote.id === player.id)
+                  .length || 0;
+              console.log(player.votes);
+            });
+          } else {
+            table.players.forEach((player) => {
+              player.votes = 0;
+              console.log(player.votes);
+            });
+          }
+          console.log(table);
+        });
       });
     }, 1000);
     return () => clearInterval(interval);
@@ -71,7 +99,7 @@ const Tables = () => {
           <br />
           <button
             disabled={event.ActiveTables.some(
-              (t) => t.matchStatus !== "Completed"
+              (t) => t.matchStatus === "Ongoing"
             )}
             onClick={generateNextRound}
           >
@@ -88,9 +116,26 @@ const Tables = () => {
               Players:
               <ul className="player-list">
                 {table.players.map((player) => (
-                  <li>
+                  <li key={player.id}>
                     {player.name} - ID:{player.id} - Points: {player.points} (+
-                    {player.matchPoints})
+                    {player.matchPoints}) AP/P: {player.APP} Votes:{" "}
+                    {table.votes &&
+                    table.votes.filter(
+                      (ballot) => ballot.vote.name === player.name
+                    ).length > 0
+                      ? table.votes.filter(
+                          (ballot) => ballot.vote.name === player.name
+                        ).length
+                      : 0}{" "}
+                    Voted for:{" "}
+                    {table.votes &&
+                    table.votes.filter(
+                      (ballot) => ballot.voter.name === player.name
+                    ).length > 0
+                      ? table.votes.filter(
+                          (ballot) => ballot.voter.name === player.name
+                        )[0].vote.name
+                      : "No one"}
                     <Popup
                       className="popup"
                       modal
@@ -98,26 +143,32 @@ const Tables = () => {
                       overlayStyle={overlayStyle}
                       trigger={<button disabled={player.dropped}>Drop</button>}
                       open={openDrop}
+                      onClose={closeDropWindow}
                     >
-                      <h2>Are you sure you wish to drop this player?</h2>
-                      <h2>{player.name}</h2>
-                      <button
-                        onClick={async () => {
-                          await Axios.post(
-                            `http://${config.ip}:8080/events/dropPlayer`,
-                            {
-                              player: player,
-                              table: table,
-                            }
-                          ).then((res) => {
-                            console.log(res);
-                          });
-                        }}
-                      >
-                        Drop
-                      </button>
-                      <br />
-                      <br />
+                      {(close) => (
+                        <div>
+                          <h2>Are you sure you wish to drop this player?</h2>
+                          <h2>{player.name}</h2>
+                          <button
+                            onClick={async () => {
+                              await Axios.post(
+                                `http://${config.ip}:8080/events/dropPlayer`,
+                                {
+                                  player: player,
+                                  table: table,
+                                }
+                              ).then((res) => {
+                                console.log(res);
+                                close();
+                              });
+                            }}
+                          >
+                            Drop
+                          </button>
+                          <br />
+                          <br />
+                        </div>
+                      )}
                     </Popup>
                   </li>
                 ))}
@@ -132,60 +183,109 @@ const Tables = () => {
                 }
                 open={openSubmit}
               >
-                <div>Submit results as:</div>
-                {table.players.map((player) => (
-                  <li key={player.id}>
-                    {player.name}:&nbsp;
+                {(close) => (
+                  <div>
+                    <div>Submit results as:</div>
+                    <ul className="table-list">
+                      {table.players.map((player) => (
+                        <li key={player.id}>
+                          {player.name}&nbsp; Points:
+                          <button
+                            onClick={async () => {
+                              player.matchPoints--;
+                              await Axios.post(
+                                `http://${config.ip}:8080/events/saveTable`,
+                                {
+                                  table: table,
+                                  userId: player.id,
+                                }
+                              ).then((res) => {
+                                console.log(res.data);
+                                closeSubmitWindow();
+                              });
+                            }}
+                          >
+                            -
+                          </button>
+                          {player.matchPoints}
+                          <button
+                            onClick={async () => {
+                              player.matchPoints++;
+                              await Axios.post(
+                                `http://${config.ip}:8080/events/saveTable`,
+                                {
+                                  table: table,
+                                  userId: player.id,
+                                }
+                              ).then((res) => {
+                                console.log(res.data);
+                              });
+                            }}
+                          >
+                            +
+                          </button>
+                          &nbsp;Votes
+                          <button
+                            onClick={async () => {
+                              player.votes--;
+                              await Axios.post(
+                                `http://${config.ip}:8080/events/removeVote`,
+                                {
+                                  table: table,
+                                  userId: player.id,
+                                }
+                              ).then((res) => {
+                                console.log(res.data);
+                              });
+                            }}
+                          >
+                            -
+                          </button>
+                          {table.votes &&
+                          table.votes.filter(
+                            (ballot) => ballot.vote.name === player.name
+                          ).length > 0
+                            ? table.votes.filter(
+                                (ballot) => ballot.vote.name === player.name
+                              ).length
+                            : 0}
+                          <button
+                            onClick={async () => {
+                              player.votes++;
+                              await Axios.post(
+                                `http://${config.ip}:8080/events/addVote`,
+                                {
+                                  table: table,
+                                  user: player,
+                                }
+                              ).then((res) => {
+                                console.log(res.data);
+                              });
+                            }}
+                          >
+                            +
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                     <button
                       onClick={async () => {
-                        player.matchPoints--;
                         await Axios.post(
                           `http://${config.ip}:8080/events/saveTable`,
                           {
                             table: table,
-                            userId: player.id,
+                            userId: null,
                           }
                         ).then((res) => {
                           console.log(res.data);
+                          close();
                         });
                       }}
                     >
-                      -
+                      Submit
                     </button>
-                    {player.matchPoints}
-                    <button
-                      onClick={async () => {
-                        player.matchPoints++;
-                        await Axios.post(
-                          `http://${config.ip}:8080/events/saveTable`,
-                          {
-                            table: table,
-                            userId: player.id,
-                          }
-                        ).then((res) => {
-                          console.log(res.data);
-                        });
-                      }}
-                    >
-                      +
-                    </button>
-                  </li>
-                ))}
-                <button
-                  onClick={async () => {
-                    await Axios.post(
-                      `http://${config.ip}:8080/events/submitTable`,
-                      {
-                        table: table,
-                      }
-                    ).then((res) => {
-                      console.log(res.data);
-                    });
-                    closeSubmitWindow();
-                  }}
-                >
-                  Submit
-                </button>
+                  </div>
+                )}
               </Popup>
               <br />
               <br />
